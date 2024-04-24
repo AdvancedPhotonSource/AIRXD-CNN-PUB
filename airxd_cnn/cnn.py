@@ -4,15 +4,16 @@ import numpy as np
 from time import time
 
 import math
+import random
 import torch
 from torch import nn, optim
 from torch.utils.data import TensorDataset, DataLoader
 
 import imageio
 
-import pyMSDtorch
-from pyMSDtorch.core.networks import SMSNet, TUNet
-from pyMSDtorch.core import train_scripts
+import dlsia
+from dlsia.core.networks import smsnet, tunet
+from dlsia.core import train_scripts
 from qlty import qlty2D, cleanup
 import einops
 
@@ -79,7 +80,7 @@ class ARIXD_CNN:
         return _mparams
 
     def set_model(self, mparams):
-        model = TUNet.TUNet(image_shape=mparams['image_shape'],
+        model = tunet.TUNet(image_shape=mparams['image_shape'],
                             in_channels=mparams['in_channels'],
                             out_channels=mparams['out_channels'],
                             base_channels=mparams['base_channels'],

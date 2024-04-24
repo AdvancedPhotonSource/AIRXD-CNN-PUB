@@ -1,5 +1,5 @@
 import os
-import imageio
+import imageio as iio
 import numpy as np
 from glob import glob
 
@@ -25,13 +25,13 @@ class Dataset:
             
             # get images
             for j, ip in enumerate(ipath):
-                self.images[i][j] += imageio.volread(ip)
+                self.images[i][j] += iio.v2.volread(ip)
 
             # get labels
             for j, lp in enumerate(lpath):
                 print(lp)
                 if label_ext == '.tif': 
-                    self.labels[i][j] += imageio.volread(lp)
+                    self.labels[i][j] += iio.v2.volread(lp)
                 elif label_ext == '.npy':
                     self.labels[i][j] += np.load(lp)
                 else:
@@ -59,3 +59,5 @@ def parse_imctrl(filename):
                     controls[ln[0]] = float(ln[1])
 
     return controls
+
+
