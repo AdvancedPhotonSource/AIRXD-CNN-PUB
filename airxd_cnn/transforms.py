@@ -8,6 +8,9 @@ from skimage import exposure
 from skimage.filters import rank
 from skimage.morphology import disk
 
+import torch
+from torchvision.transforms import v2
+import torchvision.transforms.v2.functional as TF
 
 #Define transforms using flexible pipeline:
 
@@ -38,9 +41,11 @@ class FunctionWrapperDouble(Repr):
         self.input = input
         self.target = target
 
-    def __call__(self, inp: np.ndarray, tar: dict):
-        if self.input: inp = self.function(inp)
-        if self.target: tar = self.function(tar)
+    def __call__(self, inp: np.ndarray, tar: np.ndarray):
+        if self.input and self.target:
+            inp, tar = self.function(inp, tar)
+        elif self.input and not self.target:
+            inp = self.function(inp)
         return inp, tar
 
 
@@ -56,18 +61,61 @@ class Compose:
 class ComposeDouble(Compose):
     """Composes transforms for input-target pairs."""
 
-    def __call__(self, inp: np.ndarray, target: dict):
+    def __call__(self, inp: np.ndarray, target: np.ndarray):
         for t in self.transforms:
             inp, target = t(inp, target)
         return inp, target
     
-def rotate_random(image: np.ndarray) -> np.ndarray:
+#Trying out custom transform with nn.module
+#Source: https://pytorch.org/vision/stable/auto_examples/transforms/plot_custom_transforms.html#sphx-glr-auto-examples-transforms-plot-custom-transforms-py
+
+#Rotation
+class RandomRotation(torch.nn.Module):
+    "Rotate image and target by 0, 90, 180, or 270 degrees"
+    def forward(self, image: torch.Tensor, target: torch.Tensor):
+        angle = np.random.choice([0, 1, 2, 3])
+        #Use TF rotate to customize rotation behavior
+        return TF.rotate(image, angle*90), TF.rotate(target, angle*90)
+    
+#Random horizontal/vertical flip
+class RandomFlip(torch.nn.Module):
+    "Randomly flip image horizontally or vertically"
+    def forward(self, image: torch.Tensor, target: torch.Tensor):
+        flip = np.random.choice([0, 1, 2])
+        if flip == 0:
+            return image, target
+        elif flip == 1:
+            return TF.horizontal_flip(image), TF.horizontal_flip(target)
+        else:
+            return TF.vertical_flip(image), TF.vertical_flip(target)
+
+
+
+
+
+#Old functions    
+def rotate_random(image: np.ndarray, tar: np.ndarray):
     '''
-    Randomly rotate image by 0, 90, 180, or 270 degrees
+    Randomly rotate image and target by 0, 90, 180, or 270 degrees
     '''
     angle = np.random.choice([0, 1, 2, 3])
-    return np.rot90(image, k=angle)
-def powder_normalize(image: np.darray) -> np.darray:
+    return np.rot90(image, k=angle), np.rot90(tar, k=angle)
+
+def flip_random(image: np.ndarray, tar: np.ndarray):
+    '''
+    Randomly flip image horizontally or vertically
+    '''
+
+    flip = np.random.choice([0, 1, 2])
+    if flip == 0:
+        return image, tar
+    elif flip == 1:
+        return np.fliplr(image), np.fliplr(tar)
+    else:
+        return np.flipud(image), np.flipud(tar)
+
+#Don't touch
+def powder_normalize(image: np.ndarray) -> np.ndarray:
     '''
     Pre-processing powder normalization; not included in pipeline
     '''
