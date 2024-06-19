@@ -11,7 +11,7 @@ from torchvision.transforms import ToTensor
 from torchvision.transforms import v2
 import torchvision.transforms.v2.functional as TF
 import PIL
-
+from mmap_ninja.ragged import RaggedMmap
 
 
 
@@ -47,9 +47,67 @@ class powder_dset(Dataset):
         self.x_steps_per_im = self.calculate_steps(kwargs["im_size"][-2], kwargs["window_size"][-2])
         self.y_steps_per_im = self.calculate_steps(kwargs["im_size"][-1], kwargs["window_size"][-1])
         self.nsteps_per_im = self.x_steps_per_im * self.y_steps_per_im
+
         #Other useful parameters
         self.im_size = kwargs["im_size"]
         self.window_size = kwargs["window_size"]
+
+        #Create memory map
+        self.input_map_path = kwargs["input_map_path"]
+        self.target_map_path = kwargs["target_map_path"]
+        
+        if not os.path.exists( self.input_map_path) and not os.path.exists(self.target_map_path):
+            self.memory_map(input_paths, target_paths)
+
+        self.inputs = RaggedMmap(self.input_map_path)
+        self.targets = RaggedMmap(self.target_map_path)
+
+
+    def memory_map(self,input_paths, target_paths):
+        """
+        Create a memory map of the input and target paths using memmap_ninja
+        """
+        #Print status message
+        print("Creating memory map of input and target paths...")
+
+        #Input
+        RaggedMmap.from_generator(
+            out_dir='data/input_mmap',
+            sample_generator=map(self.generate_patch, input_paths),
+            batch_size=4,
+            verbose=True
+        )
+
+        #Target
+        RaggedMmap.from_generator(
+            out_dir = 'data/target_mmap',
+            sample_generator=map(self.generate_patch, target_paths),
+            batch_size=4,
+            verbose=True
+        )
+        print('Done!')
+
+    def generate_patch(self, image_path):
+        """
+        Create numpy array with all the patches from a single image to store to memory.
+        We are pre-computing the patches and storing them in a memory map to speed up data loading.
+        """
+
+        #Load in image with volread
+        image = iio.v2.volread(image_path)
+        #Create empty array
+        patches = np.zeros((self.nsteps_per_im, self.window_size[0], self.window_size[1]))
+        patches = np.float32(patches)
+        #Loop through each patch
+        for i in range(self.nsteps_per_im):
+            #Get x and y start points
+            x_start = (i % self.x_steps_per_im) * self.window_size[0]//2
+            y_start = (i // self.x_steps_per_im) * self.window_size[1]//2
+            #Crop image
+            patches[i] = image[x_start:x_start+self.window_size[0], y_start:y_start+self.window_size[1]]
+
+        return patches
+
 
 
     def calculate_steps(self, im_size, window_size):
@@ -81,6 +139,15 @@ class powder_dset(Dataset):
 
         return image_id, x_start, y_start
 
+    def linear_index_to_image_index(self, index):
+        #Select specific image from input_paths
+        image_id = index // self.nsteps_per_im
+
+        #Caculate image index we're retrieving from
+        image_index = index % self.nsteps_per_im
+
+        return image_id, image_index
+
     #Return length of dataset    
     def __len__(self):
         return self.dir_len * self.x_steps_per_im * self.y_steps_per_im
@@ -88,20 +155,18 @@ class powder_dset(Dataset):
     #Get item using indexing and subcropping
     def __getitem__(self, index):
         #Get image id, x and y start points
-        image_id, x_start, y_start = self.linear_index_to_window(index)
+        image_id, image_index = self.linear_index_to_image_index(index)
 
-        #Load images using iio.v2.volread
-        #Input
-        #Time each step
-        x = iio.v2.volread(self.input_paths[image_id])
-        # x = PIL.Image.open("../" + self.input_paths[image_id])
+        #Try loading in this image. If it doesn't work, spit out image_id
+        try:
+            x = self.inputs[image_id][image_index]
+        except:
+            print("Error loading image with id: {}".format(image_id))
         x = ToTensor()(x)
-        x = TF.crop(x, x_start, y_start, self.window_size[0], self.window_size[1])
-        
+
         #Target
-        t = iio.v2.volread(self.target_paths[image_id])
+        t = self.targets[image_id][image_index]
         t = ToTensor()(t)
-        t = TF.crop(t, x_start, y_start, self.window_size[0], self.window_size[1])
 
         #Transform with whatever is in the pipeline
         if self.transform is not None:
@@ -111,8 +176,6 @@ class powder_dset(Dataset):
         return x, t
 
     
-
-
 def parse_imctrl(filename):
     controls = {'size': [2880, 2880], 'pixelSize': [150.0, 150.0]}
     keys = ['IOtth', 'PolaVal', 'azmthOff', 'rotation', 'distance', 'center', 'tilt', 'DetDepth']
