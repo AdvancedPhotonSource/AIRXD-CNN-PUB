@@ -165,13 +165,17 @@ class ARIXD_CNN:
 
         with torch.no_grad():
             _result = self.model(_image)
-        _result = nn.Softmax(dim=1)(_result).to('cpu')
+        _result = nn.Softmax(dim=1)(_result)
         _result = self.quilter.stitch(_result)
+        for tensor in _result:
+            tensor.to('cpu').numpy()
 
         result = np.zeros((shape[0], shape[1]), dtype=float)
         #Note from Albert: result is M x C x H x W, where M can be > 1 if you're
         #stitching more than 1 image together. We are not, so
         #we index into 0
+
+        #It seems like anything above 10% confidence is already filtered out
         result += np.array(_result[0][0,0]<0.9, dtype=float)
         return result
     

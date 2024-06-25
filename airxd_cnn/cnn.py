@@ -153,6 +153,9 @@ class ARIXD_CNN:
         _result = self.quilter.stitch(_result)
 
         result = np.zeros((shape[0], shape[1]), dtype=float)
+        #Note from Albert: result is M x C x H x W, where M can be > 1 if you're
+        #stitching more than 1 image together. We are not, so
+        #we index into 0
         result += np.array(_result[0][0,0]<0.9, dtype=float)
         return result
 
