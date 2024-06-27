@@ -19,6 +19,7 @@ import PIL
 from mmap_ninja.ragged import RaggedMmap
 from qlty import qlty2D
 import einops
+import pickle
 
 
 
@@ -57,6 +58,7 @@ class powder_dset(Dataset):
         self.device = kwargs["device"]
 
         #Transform pipeline
+        self.crop = qlty_params["crop"]
         self.transform = kwargs["transforms"]
 
         #For minority class training
@@ -70,12 +72,16 @@ class powder_dset(Dataset):
         
         if kwargs['create_memmap']:
             self.memory_map(input_paths, target_paths)
+            #Use pickle to save self.good_incies and self.bad_indices
+            with open("data/indices.pkl", 'wb') as f:
+                pickle.dump([self.good_indices, self.bad_indices], f)
+        else:
+            #Load in indices
+            with open("data/indices.pkl", 'rb') as f:
+                self.good_indices, self.bad_indices = pickle.load(f)
 
         self.inputs = RaggedMmap(self.input_map_path)
         self.targets = RaggedMmap(self.target_map_path)
-
-
-
 
     def memory_map(self,input_paths, target_paths):
         """
@@ -89,6 +95,7 @@ class powder_dset(Dataset):
         if os.path.exists(self.target_map_path):
             shutil.rmtree(self.target_map_path)
 
+        #Clumsy good indice implementation. Don't want to make a new function for this.
         #Input
         self.add_to_list = False
         RaggedMmap.from_generator(
@@ -99,6 +106,7 @@ class powder_dset(Dataset):
         )
 
         #Target
+        self.i = 0
         self.add_to_list = True
         RaggedMmap.from_generator(
             out_dir = self.target_map_path,
@@ -118,8 +126,9 @@ class powder_dset(Dataset):
 
         #Load in image with volread
         image = iio.v2.volread(image_path)
-        #Create empty array
         shape = image.shape
+        #Crop
+        image = image[self.crop:shape[0]-self.crop, self.crop:shape[1]-self.crop]
         #Reshape
         _image = einops.rearrange(image, "Y X -> () () Y X")
         #Torch tensor for qlty
@@ -132,15 +141,24 @@ class powder_dset(Dataset):
 
         #Find indices where np_patch images have greater than threshold
         if self.add_to_list:
-            good_idx = np.where(np_patch.sum(axis=(1,2)) > self.minority_threshold)
-            bad_idx = np.where(np_patch.sum(axis=(1,2)) <= self.minority_threshold)
+            #Sum up the number of minority labels
+            np_patch_sum = np_patch.sum(axis=(1,2))
+            #Good indices are ones where there are more than the minority threshold in the patch
+            good_idx = np.where((np_patch_sum > self.minority_threshold))
+            bad_idx = np.where(np_patch_sum <= self.minority_threshold)
 
             #Add indices to final index list (we can use this to control minority/majority)
-            self.good_indices.extend(good_idx[0].tolist())
-            self.bad_indices.extend(bad_idx[0].tolist())
+            good_idx_list = (self.n_patches * self.i + good_idx[0]).tolist()
+            bad_idx_list = (self.n_patches * self.i + bad_idx[0]).tolist()
+
+            self.good_indices.extend(good_idx_list)
+            self.bad_indices.extend(bad_idx_list)
+            
+            self.i += 1
+        
 
         return np_patch
-    
+       
     def get_n_patches(self, qlty_params):
         """
         Computes the number of chunks along Z, Y, and X dimensions, ensuring the last chunk

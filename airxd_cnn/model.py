@@ -24,8 +24,7 @@ class ARIXD_CNN:
         #Set parameters
         self.model_params = self.update_model_parameters(model_params)
         self.training_params = training_params
-        self.quilter_params = self.update_quilter_parameters(quilter_params)
-        self.quilter = self.set_quilter(self.quilter_params)
+        self.quilter = self.set_quilter(quilter_params)
         self.model = self.set_model(self.model_params)
         
         self.device = training_params['device']
@@ -66,21 +65,6 @@ class ARIXD_CNN:
                                 step=qparams['step'],
                                 border=qparams['border'],
                                 border_weight=qparams['border_weight'])
-
-    def update_quilter_parameters(self, qparams):
-        _qparams = {'Y': 2880, 'X': 2880,
-                    'window': (128, 128),
-                    'step': (64, 64),
-                    'border': (16, 16),
-                    'border_weight': 0}
-        
-        if qparams:
-            for k, v in qparams.items():
-                if k not in _qparams:
-                    msg = f'The quilter parameter key ({k}) is invalid.'
-                    raise NotImplementedError(msg)
-            _qparams.update(qparams)
-        return _qparams
 
     
     def save(self, file='./model.pt'):
@@ -149,7 +133,7 @@ class ARIXD_CNN:
         _image = torch.Tensor(input_dset[idx]).to(self.device)
 
 
-    def predict_old(self, image_file):
+    def predict_old(self, image_file, threshold=0.1):
         """
         Predicts segmemntation of image.
         Keeping the old implementation from original code.
@@ -161,14 +145,16 @@ class ARIXD_CNN:
         shape = image.shape
         _image = einops.rearrange(image, "Y X -> () () Y X")
         _image = torch.Tensor(_image).to(self.device) 
-        _image = self.quilter.unstitch(_image)
+        image = self.quilter.unstitch(_image)
 
         with torch.no_grad():
-            _result = self.model(_image)
+            _result = self.model(image)
         _result = nn.Softmax(dim=1)(_result)
         _result = self.quilter.stitch(_result)
-        for tensor in _result:
-            tensor.to('cpu').numpy()
+
+        res = []
+        for i, tensor in enumerate(_result):
+            res.append(tensor[i].to('cpu').numpy())
 
         result = np.zeros((shape[0], shape[1]), dtype=float)
         #Note from Albert: result is M x C x H x W, where M can be > 1 if you're
@@ -176,6 +162,6 @@ class ARIXD_CNN:
         #we index into 0
 
         #It seems like anything above 10% confidence is already filtered out
-        result += np.array(_result[0][0,0]<0.9, dtype=float)
+        result += np.array(res[0][0]<threshold, dtype=float)
         return result
     
