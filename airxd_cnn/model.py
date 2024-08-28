@@ -2,6 +2,7 @@ import os
 import scipy
 import numpy as np
 from time import time
+import importlib
 
 import math
 import random
@@ -10,6 +11,7 @@ from torch import nn, optim
 
 
 import dlsia
+importlib.reload(dlsia)
 from dlsia.core.networks import smsnet, tunet
 from dlsia.core import train_scripts
 #Needed to modify source code for gpu inference.
@@ -30,7 +32,7 @@ class ARIXD_CNN:
         self.quilter = self.set_quilter(quilter_params)
         self.model = self.set_model(self.model_params)
         
-        self.device = training_params['device']
+        self.device = torch.device(training_params['device'] if torch.cuda.is_available() else "cpu")
 
     def update_model_parameters(self, mparams):
 
@@ -60,6 +62,9 @@ class ARIXD_CNN:
                             depth=mparams['depth'])
         #total_params = sum(param.numel() for param in model.parameters())
         #print(total_params)
+        if self.training_params["multi_gpu"]:
+            model = nn.DataParallel(model)
+
         return model
     
     def set_quilter(self, qparams):
@@ -90,10 +95,9 @@ class ARIXD_CNN:
         criterion = nn.CrossEntropyLoss(weight = weights, ignore_index=-1)
         minim = optim.Adam(self.model.parameters(), lr = self.training_params['lr_rate'])
 
-
         print("====================== Training ======================")
         t0 = time()
-        self.model, self.res = train_scripts.train_segmentation(net = self.model.to(self.device),
+        self.model, self.res = train_scripts.train_segmentation(net =  self.model.to(self.device),
                                                                 trainloader = tloader,
                                                                 validationloader = vloader,
                                                                 NUM_EPOCHS = self.training_params['epoch'],
