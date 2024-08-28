@@ -12,9 +12,12 @@ from torch import nn, optim
 import dlsia
 from dlsia.core.networks import smsnet, tunet
 from dlsia.core import train_scripts
-from qlty import qlty2D, cleanup
+#Needed to modify source code for gpu inference.
+#Some arrays were kept on cpu side which made it impossible to do
+#stitching on the gpu (which is much faster than cpu)
+from .qlty_modified import NCYXQuilt
 import einops
-from qlty import qlty2D, cleanup
+
 
 import imageio as iio
 
@@ -60,7 +63,7 @@ class ARIXD_CNN:
         return model
     
     def set_quilter(self, qparams):
-        return qlty2D.NCYXQuilt(Y=qparams['Y'], X=qparams['X'],
+        return NCYXQuilt(Y=qparams['Y'], X=qparams['X'],
                                 window=qparams['window'],
                                 step=qparams['step'],
                                 border=qparams['border'],
