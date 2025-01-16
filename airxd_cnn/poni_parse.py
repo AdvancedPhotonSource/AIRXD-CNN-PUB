@@ -31,6 +31,7 @@ class PyFaiFile:
                         
                         setattr(self, key.lower(), value)
 
+
 def convert_to_imctrl(poni_path):
     """Convert a Geometry|PONI object to the geometry of Fit2D
     Please see the doc from Fit2dGeometry
@@ -57,16 +58,17 @@ def convert_to_imctrl(poni_path):
         sin_tpr = sin(poni.rot2) / sin_tilt
     directDist = 1.0e3 * poni.distance / cos_tilt
     tilt = degrees(acos(cos_tilt))
+
     if sin_tpr < 0:
         tpr = -degrees(acos(cos_tpr))
     else:
         tpr = degrees(acos(cos_tpr))
 
-    centerX = (poni.poni2 + poni.distance * tan_tilt * cos_tpr) / poni.pixel2
+    centerX = (poni.poni2 + poni.distance * tan_tilt * cos_tpr) * 1e3#/ poni.pixel2
     if abs(tilt) < 1e-5:  # in degree
         centerY = (poni.poni1) / poni.pixel1
     else:
-        centerY = (poni.poni1 + poni.distance * tan_tilt * sin_tpr) / poni.pixel1
+        centerY = (poni.poni1 + poni.distance * tan_tilt * sin_tpr) * 1e3#/ poni.pixel1
     out = {}
     out["distance"] = directDist
     out["center"] = [centerX, centerY]
