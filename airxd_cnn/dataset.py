@@ -2,6 +2,7 @@ import os
 import imageio as iio
 import numpy as np
 from glob import glob
+from pathlib import Path
 
 class Dataset:
 
@@ -12,7 +13,7 @@ class Dataset:
         self.images = {}
         self.labels = {}
 
-    def get_data(self, directory_names, image_ext='.tif', label_ext='.tif'):
+    def get_data(self, directory_names, pruned_names, image_ext='.tif', label_ext='.tif'):
         ''' get images from directories (directory_names). '''
         msg = "The number of experiments (n) doesn't match with number of directories. "
         assert self.n == len(directory_names), msg
@@ -20,15 +21,29 @@ class Dataset:
         for i, path in enumerate(directory_names):
             ipath = sorted(glob(os.path.join(path, f'*{image_ext}')))
             lpath = sorted(glob(os.path.join(path, 'masks', f'*{label_ext}')))
-            self.images[i] = np.zeros((len(ipath), self.shape[0], self.shape[1]))
-            self.labels[i] = np.zeros((len(lpath), self.shape[0], self.shape[1]))
+            
+            #Apply pruning based on pre-calculated list. Results can be re-created in example_training.ipynb step 1
+            #If no pruning (i.e. pruned_list is empty), default to include everything
+            if pruned_names:
+                valid_input_paths = [
+                    file for file in ipath
+                    if any(Path(file).stem.startswith(base) for base in pruned_names)]
+                valid_mask_paths = [
+                    file for file in lpath
+                    if any(Path(file).stem.startswith(base) for base in pruned_names)]
+            else:
+                valid_input_paths = ipath
+                valid_mask_paths = lpath
+
+            self.images[i] = np.zeros((len(valid_input_paths), self.shape[0], self.shape[1]))
+            self.labels[i] = np.zeros((len(valid_mask_paths), self.shape[0], self.shape[1]))
             
             # get images
-            for j, ip in enumerate(ipath):
+            for j, ip in enumerate(valid_input_paths):
                 self.images[i][j] += iio.v2.volread(ip)
 
             # get labels
-            for j, lp in enumerate(lpath):
+            for j, lp in enumerate(valid_mask_paths):
                 print(lp)
                 if label_ext == '.tif': 
                     self.labels[i][j] += iio.v2.volread(lp)

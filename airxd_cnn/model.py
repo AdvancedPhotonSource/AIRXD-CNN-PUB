@@ -17,7 +17,8 @@ from dlsia.core import train_scripts
 #Needed to modify source code for gpu inference.
 #Some arrays were kept on cpu side which made it impossible to do
 #stitching on the gpu (which is much faster than cpu)
-from .qlty_modified import NCYXQuilt
+from qlty import qlty2D
+# from .qlty_modified import NCYXQuilt
 import einops
 
 
@@ -68,7 +69,7 @@ class ARIXD_CNN:
         return model
     
     def set_quilter(self, qparams):
-        return NCYXQuilt(Y=qparams['Y'], X=qparams['X'],
+        return qlty2D.NCYXQuilt(Y=qparams['Y'], X=qparams['X'],
                                 window=qparams['window'],
                                 step=qparams['step'],
                                 border=qparams['border'],
