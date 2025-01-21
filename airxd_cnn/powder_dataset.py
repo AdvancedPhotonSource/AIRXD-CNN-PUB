@@ -1,17 +1,25 @@
+from sklearn.utils import gen_batches
 import torchvision.transforms.functional as TF
 import numpy as np
 import random
 import os
 import imageio as iio
+import shutil
+from functools import partial
 
-#Import Dataset from torch
+#Torch
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
 from torchvision.transforms import v2
 import torchvision.transforms.v2.functional as TF
+
+#Image manipulation
 import PIL
 from mmap_ninja.ragged import RaggedMmap
+from qlty import qlty2D
+import einops
+import pickle
 
 
 
@@ -29,6 +37,7 @@ class powder_dset(Dataset):
     def __init__(self,
                  input_paths,
                  target_paths,
+                 qlty_params,
                  **kwargs
                  ):
         """
@@ -38,30 +47,41 @@ class powder_dset(Dataset):
             target_path (string): Path to target images
             train_transform (bool, optional): Optional transform to be applied
         """
+        #Paths
         self.input_paths = input_paths
         self.target_paths = target_paths
-        self.transform = kwargs["transforms"]
         self.dir_len = len(self.input_paths)
 
-        #Pre-calculate image windowing based on qlty
-        self.x_steps_per_im = self.calculate_steps(kwargs["im_size"][-2], kwargs["window_size"][-2])
-        self.y_steps_per_im = self.calculate_steps(kwargs["im_size"][-1], kwargs["window_size"][-1])
-        self.nsteps_per_im = self.x_steps_per_im * self.y_steps_per_im
+        #2D unstitching
+        self.quilter = self.set_quilter(qlty_params)
+        self.n_patches = self.get_n_patches(qlty_params)
+        self.device = kwargs["device"]
 
-        #Other useful parameters
-        self.im_size = kwargs["im_size"]
-        self.window_size = kwargs["window_size"]
+        #Transform pipeline
+        self.crop = qlty_params["crop"]
+        self.transform = kwargs["transforms"]
 
-        #Create memory map
+        #For minority class training
+        self.good_indices = []
+        self.bad_indices = []
+        self.minority_threshold = kwargs["minority_threshold"]
+
+        #Create memory maps
         self.input_map_path = kwargs["input_map_path"]
         self.target_map_path = kwargs["target_map_path"]
         
-        if not os.path.exists( self.input_map_path) and not os.path.exists(self.target_map_path):
+        if kwargs['create_memmap']:
             self.memory_map(input_paths, target_paths)
+            #Use pickle to save self.good_incies and self.bad_indices
+            with open("data/indices.pkl", 'wb') as f:
+                pickle.dump([self.good_indices, self.bad_indices], f)
+        else:
+            #Load in indices
+            with open("data/indices.pkl", 'rb') as f:
+                self.good_indices, self.bad_indices = pickle.load(f)
 
         self.inputs = RaggedMmap(self.input_map_path)
         self.targets = RaggedMmap(self.target_map_path)
-
 
     def memory_map(self,input_paths, target_paths):
         """
@@ -70,17 +90,26 @@ class powder_dset(Dataset):
         #Print status message
         print("Creating memory map of input and target paths...")
 
+        if os.path.exists(self.input_map_path):
+            shutil.rmtree(self.input_map_path)
+        if os.path.exists(self.target_map_path):
+            shutil.rmtree(self.target_map_path)
+
+        #Clumsy good indice implementation. Don't want to make a new function for this.
         #Input
+        self.add_to_list = False
         RaggedMmap.from_generator(
-            out_dir='data/input_mmap',
+            out_dir=self.input_map_path,
             sample_generator=map(self.generate_patch, input_paths),
             batch_size=4,
             verbose=True
         )
 
         #Target
+        self.i = 0
+        self.add_to_list = True
         RaggedMmap.from_generator(
-            out_dir = 'data/target_mmap',
+            out_dir = self.target_map_path,
             sample_generator=map(self.generate_patch, target_paths),
             batch_size=4,
             verbose=True
@@ -91,66 +120,84 @@ class powder_dset(Dataset):
         """
         Create numpy array with all the patches from a single image to store to memory.
         We are pre-computing the patches and storing them in a memory map to speed up data loading.
+
+        We're using qlty to do the image patch unstitching
         """
 
         #Load in image with volread
         image = iio.v2.volread(image_path)
-        #Create empty array
-        patches = np.zeros((self.nsteps_per_im, self.window_size[0], self.window_size[1]))
-        patches = np.float32(patches)
-        #Loop through each patch
-        for i in range(self.nsteps_per_im):
-            #Get x and y start points
-            x_start = (i % self.x_steps_per_im) * self.window_size[0]//2
-            y_start = (i // self.x_steps_per_im) * self.window_size[1]//2
-            #Crop image
-            patches[i] = image[x_start:x_start+self.window_size[0], y_start:y_start+self.window_size[1]]
+        shape = image.shape
+        #Crop
+        image = image[self.crop:shape[0]-self.crop, self.crop:shape[1]-self.crop]
+        #Reshape
+        _image = einops.rearrange(image, "Y X -> () () Y X")
+        #Torch tensor for qlty
+        _image = torch.Tensor(_image)
+        #Unstitch image to patches
+        patch = self.quilter.unstitch(_image)
+        patch = torch.squeeze(patch)
+        #Convert to numpy
+        np_patch = patch.numpy()
 
-        return patches
+        #Find indices where np_patch images have greater than threshold
+        if self.add_to_list:
+            #Sum up the number of minority labels
+            np_patch_sum = np_patch.sum(axis=(1,2))
+            #Good indices are ones where there are more than the minority threshold in the patch
+            good_idx = np.where((np_patch_sum > self.minority_threshold))
+            bad_idx = np.where(np_patch_sum <= self.minority_threshold)
 
+            #Add indices to final index list (we can use this to control minority/majority)
+            good_idx_list = (self.n_patches * self.i + good_idx[0]).tolist()
+            bad_idx_list = (self.n_patches * self.i + bad_idx[0]).tolist()
 
-
-    def calculate_steps(self, im_size, window_size):
-        step_size = window_size // 2
-        full_steps = (im_size - window_size) // step_size
-
-        # if im_size > full_steps * step_size + window_size:
-        #     return full_steps + 2
-        # else:
-        return full_steps + 1
+            self.good_indices.extend(good_idx_list)
+            self.bad_indices.extend(bad_idx_list)
+            
+            self.i += 1
         
-    def linear_index_to_window(self, index):
-        #Select specific image from input_paths
-        #Index is 1-indexed (not zero indexed)
-        #E.g. each image will have 484 windows, so index of 500 would pick
-        #the second image on the input_path
 
-        image_id = (index-1) // self.nsteps_per_im + 1
+        return np_patch
+       
+    def get_n_patches(self, qlty_params):
+        """
+        Computes the number of chunks along Z, Y, and X dimensions, ensuring the last chunk
+        is included by adjusting the starting points.
+        """
+        def compute_steps(dimension_size, window_size, step_size):
+            # Calculate the number of full steps
+            full_steps = (dimension_size - window_size) // step_size
+            # Check if there is enough space left for the last chunk
+            if dimension_size > full_steps * step_size + window_size:
+                return full_steps + 2
+            else:
+                return full_steps + 1
+            
+        Y_times = compute_steps(qlty_params['Y'], qlty_params['window'][-2], qlty_params['step'][-2])
+        X_times = compute_steps(qlty_params['X'], qlty_params['window'][-1], qlty_params['step'][-1])
 
-        #Calculate x and y index of window
-        #image_index is a linear index
-        image_index = (index-1) % self.nsteps_per_im
-        y_index = image_index // self.x_steps_per_im
-        x_index = image_index % self.x_steps_per_im
-
-        #Calculate x and y start, endpoints
-        x_start = x_index * self.window_size[0]//2
-        y_start = y_index * self.window_size[1]//2
-
-        return image_id, x_start, y_start
-
+        return Y_times * X_times        
+        
+    #Create qlty2D
+    def set_quilter(self, qparams):
+        return qlty2D.NCYXQuilt(Y=qparams['Y'], X=qparams['X'],
+                            window=qparams['window'],
+                            step=qparams['step'],
+                            border=qparams['border'],
+                            border_weight=qparams['border_weight'])
+        
     def linear_index_to_image_index(self, index):
         #Select specific image from input_paths
-        image_id = index // self.nsteps_per_im
+        image_id = index // self.n_patches
 
         #Caculate image index we're retrieving from
-        image_index = index % self.nsteps_per_im
+        image_index = index % self.n_patches
 
         return image_id, image_index
 
     #Return length of dataset    
     def __len__(self):
-        return self.dir_len * self.x_steps_per_im * self.y_steps_per_im
+        return self.dir_len * self.n_patches
     
     #Get item using indexing and subcropping
     def __getitem__(self, index):
