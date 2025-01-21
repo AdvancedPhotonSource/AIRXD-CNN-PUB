@@ -6,8 +6,8 @@ This repository contains a lightweight convolutional neural network designed for
 
 ## Table of Contents
 1. [Installation](#installation)
-2. [Usage] (#usage)
-3. [Examples] (#examples)
+2. [Usage](#usage)
+3. [Examples](#examples)
 
 ---
 
@@ -39,7 +39,7 @@ Ensure you have the following installed:
 The original model can be trained with some variant of vanilla_train.py. All hyperparameter sweeps were done by building on top of this initial training code.
 Currently, the training hyperparameters are set at the optimal numbers we found (see manuscript).
 
-To run, simply use ```bash python vanilla.py.
+To run, simply use: `python vanilla.py`.
 
 NOTE: You need pretty high local memory requirements to run this due to the size of all the image patches (> 100 GB). For a more lightweight implementation, see below.
 
@@ -47,4 +47,4 @@ NOTE: You need pretty high local memory requirements to run this due to the size
 
 ## Examples
 
-Use the notebook example_training.ipynb to go through the different steps of the training process, including the mutual information pruning and island masking steps. There is a secondary lightweight neural network that doesn't have nearly has high memory requirements that can achieve similar levels of performance. You can also skip straight ahead to Steps 3-4 in the notebook to use our best-trained models to evaluate the test set.
+Use the notebook `example_training.ipynb` to go through the different steps of the training process, including the mutual information pruning and island masking steps. There is a secondary lightweight neural network that doesn't have nearly has high memory requirements that can achieve similar levels of performance. You can also skip straight ahead to Steps 3-4 in the notebook to use our best-trained models to evaluate the test set.
