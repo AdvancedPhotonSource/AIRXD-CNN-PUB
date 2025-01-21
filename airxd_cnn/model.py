@@ -18,6 +18,7 @@ from dlsia.core import train_scripts
 #Some arrays were kept on cpu side which made it impossible to do
 #stitching on the gpu (which is much faster than cpu)
 from qlty import qlty2D
+from airxd_cnn.transforms import powder_normalize
 # from .qlty_modified import NCYXQuilt
 import einops
 
@@ -141,35 +142,39 @@ class ARIXD_CNN:
         _image = torch.Tensor(input_dset[idx]).to(self.device)
 
 
-    def predict_old(self, image_file, threshold=0.1):
-        """
-        Predicts segmemntation of image.
-        Keeping the old implementation from original code.
-        Could be cleaned up for clarity but keeping as is for now.
-        Note: Old implementation is super ram heavy still and does not work. Need to re-do implementation
-        """
-
-        image = iio.v2.volread(image_file)
+    def predict_old(self, image):
+        # image = iio.v2.volread(image_file)
         shape = image.shape
-        _image = einops.rearrange(image, "Y X -> () () Y X")
-        _image = torch.Tensor(_image).to(self.device) 
-        image = self.quilter.unstitch(_image)
-
+        _image = einops.rearrange(powder_normalize(image), "Y X -> () () Y X")
+        #Change dtype of _image to float32
+        _image = torch.tensor(_image, dtype = torch.float32).to(self.device)
+        _image = self.quilter.unstitch(_image)
+ 
+        # with torch.no_grad():
+        #     _result = self.model(_image)
+        # _result = self.quilter.stitch(_result)
+        # _result = nn.Softmax(dim=1)(_result).to('cpu')
+        
+ 
+        # result = np.zeros((shape[0], shape[1]), dtype=float)
+        # result += np.array(_result[0][0,0]<0.9, dtype=float)
+        print(_image.shape)
+ 
         with torch.no_grad():
-            _result = self.model(image)
+            _result = self.model(_image)
         _result = nn.Softmax(dim=1)(_result)
         _result = self.quilter.stitch(_result)
-
+ 
         res = []
         for i, tensor in enumerate(_result):
             res.append(tensor[i].to('cpu').numpy())
-
+ 
         result = np.zeros((shape[0], shape[1]), dtype=float)
         #Note from Albert: result is M x C x H x W, where M can be > 1 if you're
         #stitching more than 1 image together. We are not, so
         #we index into 0
-
+ 
         #It seems like anything above 10% confidence is already filtered out
-        result += np.array(res[0][0]<threshold, dtype=float)
+        result += np.array(res[0][0]<0.9, dtype=float)
         return result
     
