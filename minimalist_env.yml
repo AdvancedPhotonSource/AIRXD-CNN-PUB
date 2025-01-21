@@ -7,7 +7,6 @@ channels:
 dependencies:
   - conda-libmamba-solver
   - mamba
-  - micromamba
   - numpy=1.26.4
   - pip
   - pytorch
@@ -30,4 +29,4 @@ dependencies:
       - qlty==0.1.7
       - scipy==1.13.0
       - scikit-learn==1.4.2
-prefix: /root/miniconda3/envs/airxd_cnn_fresh
+#prefix: /root/miniconda3/envs/airxd_cnn_fresh

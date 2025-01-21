@@ -15,7 +15,12 @@ from airxd_cnn.dataset import Dataset
 from sklearn.metrics import confusion_matrix as CM
 from airxd_cnn.transforms import create_filtered_masks
 
-#This is a very barebones implementation of 
+import torch
+
+#Seeding
+seed = 42
+np.random.seed(seed) #Seeding for dataloader manipulation
+torch.manual_seed(0) #Seeding model for training
 
 #Get the pruned list for training
 with open('data/pruned_list.pkl', 'rb') as file:
