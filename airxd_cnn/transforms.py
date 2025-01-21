@@ -1,5 +1,8 @@
 from typing import List, Callable, Tuple
 import numpy as np
+from glob import glob
+import os
+import imageio as iio
 
 #For normalization
 import skimage
@@ -7,10 +10,14 @@ from skimage.util import img_as_ubyte
 from skimage import exposure
 from skimage.filters import rank
 from skimage.morphology import disk
+from scipy.ndimage import label
+from skimage.measure import regionprops
 
 import torch
 from torchvision.transforms import v2
 import torchvision.transforms.v2.functional as TF
+
+
 
 #Define transforms using flexible pipeline:
 
@@ -128,4 +135,59 @@ def powder_normalize(image: np.ndarray) -> np.ndarray:
     #Most important step. Spreads out brightest pixels to enhance low contrast
     img_eq = rank.equalize(img, footprint)
     img_eq = img_eq.astype(float)/256.0
-    return img_eq     
+    return img_eq
+
+def filter_connected_components_by_size(mask, min_size, max_size=None):
+    """
+    Filters connected components in the mask based on size.
+    
+    Parameters:
+        mask (ndarray): Binary mask where spots are marked as 1, and the background is 0.
+        min_size (int): Minimum number of pixels for a connected component to be kept.
+        max_size (int, optional): Maximum number of pixels for a connected component to be kept. If None, no upper limit.
+        
+    Returns:
+        filtered_mask (ndarray): Mask with only the connected components that meet the size criteria.
+    """
+    # Label each connected component in the binary mask
+    labeled_mask, _ = label(mask)
+    
+    # Initialize an empty mask to hold the filtered components
+    filtered_mask = np.zeros_like(mask)
+    
+    # Get properties of labeled regions
+    regions = regionprops(labeled_mask)
+    
+    for region in regions:
+        # Check the size of each region
+        region_size = region.area
+        if region_size >= min_size and (max_size is None or region_size <= max_size):
+            # Add this region to the filtered mask
+            filtered_mask[labeled_mask == region.label] = 1
+    
+    return filtered_mask
+
+def create_filtered_masks(base_dir, sub_dirs):
+
+    for materials in sub_dirs:
+        image_dir = base_dir + '/' + materials
+
+        #Get sub image list
+        mask_list = glob(image_dir + '/masks/*.tif')
+        thresholded_mask_dir = image_dir + '/thresholded_mask'
+        
+        #Create directory for masked directories
+        if not os.path.exists(thresholded_mask_dir):
+            os.mkdir(thresholded_mask_dir)
+        
+            print(f'Masking images for material {materials}')
+            #For each material take each mask in the mask list and run the island filter on it
+            
+            for mask_path in mask_list:
+                mask = iio.v2.volread(mask_path)
+                thresholded_mask = filter_connected_components_by_size(mask, 5)
+
+                thresholded_mask_path = os.path.join(thresholded_mask_dir, os.path.split(mask_path)[-1])
+
+                #Write new image
+                iio.imwrite(thresholded_mask_path, thresholded_mask)
