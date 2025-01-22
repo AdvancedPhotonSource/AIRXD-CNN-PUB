@@ -13,6 +13,8 @@ This repository contains a lightweight convolutional neural network designed for
 
 ## Installation
 
+This set of steps should require just a single .yml file, but there were pytorch consistency issues that were run into when dependencies for all the packages were being solved simultaneously. We therefore need to install the deep learning packages (pytorch, torchvision, dlsia) first in a specific order before filling in the rest of the packages.
+
 ### Prerequisites
 Ensure you have the following installed:
 - [Miniconda/Anaconda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html)
@@ -24,14 +26,27 @@ Ensure you have the following installed:
    git clone https://github.com/yourusername/xray-artifact-cnn.git
    cd xray-artifact-cnn
 
-2. Create conda environment from minimalist_env.yml:
+2. Create conda environment from scratch using python 3.11:
    ```bash
-    conda env create -f minimalist_env.yml
+    conda env create -n airxd_cnn python=3.11
 
 3. Activate environment:
    ```bash
-    conda activate minimalist_env
+    conda activate airxd_cnn
 
+4. Manually install pytorch first (this was causing initial issues with the yml file):
+   ```bash
+   conda install pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia
+
+5. Manually install dlsia
+   ```bash
+   pip install dlsia
+
+6. Update remaining dependencies with .yml file
+   ```bash
+   conda env update --file minimalist_env.yml
+
+7. You're done! Everything should be ready to use.
 ---
 
 ## Usage
